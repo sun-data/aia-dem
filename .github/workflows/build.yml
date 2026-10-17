@@ -1,0 +1,72 @@
+name: build
+
+on:
+  schedule:
+    # hourly; JSOC posts each image about 11 minutes after it is taken
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  # to delete old caches, and to re-enable this workflow
+  actions: write
+
+# a long run, like the first, which fills in all 48 hours, makes the next one
+# wait rather than race it
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # The frames are kept from run to run in the cache rather than fetched
+      # back from the site, which would cost the Pages bandwidth.
+      - name: Restore the frames of the last run
+        uses: actions/cache/restore@v6
+        with:
+          path: site
+          key: site-${{ github.run_id }}
+          restore-keys: site-
+      - name: Build
+        run: python build.py site --budget 40
+      # A build that fails part way still leaves a consistent site, with
+      # whatever frames it made, so save and deploy it anyway.
+      - name: Save the frames for the next run
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v6
+        with:
+          path: site
+          key: site-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-pages-artifact@v5
+        if: ${{ !cancelled() }}
+        with:
+          path: site
+      - id: deployment
+        if: ${{ !cancelled() }}
+        uses: actions/deploy-pages@v5
+      - name: Delete all but the two newest caches
+        if: ${{ !cancelled() }}
+        run: >
+          gh cache list --repo ${{ github.repository }} --key site- --sort created_at --order desc
+          --limit 100 --json id --jq '.[2:][].id' | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
+      # GitHub disables the schedule of a repository with no activity for 60
+      # days; re-enabling the workflow restarts that clock.
+      - name: Keep the schedule alive
+        if: ${{ !cancelled() }}
+        run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/build.yml/enable
