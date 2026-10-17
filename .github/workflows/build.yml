@@ -66,7 +66,11 @@ jobs:
           gh cache list --repo ${{ github.repository }} --key site- --sort created_at --order desc
           --limit 100 --json id --jq '.[2:][].id' | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       # GitHub disables the schedule of a repository with no activity for 60
-      # days; re-enabling the workflow restarts that clock.
+      # days; re-enabling the workflow restarts that clock. Once a day is
+      # plenty, and calling it every hour may itself be what held back the
+      # first scheduled runs, since it re-registers the workflow.
       - name: Keep the schedule alive
         if: ${{ !cancelled() }}
-        run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/build.yml/enable
+        run: |
+          [ "$(date -u +%H)" = 00 ] || exit 0
+          gh api -X PUT repos/${{ github.repository }}/actions/workflows/build.yml/enable
