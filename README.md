@@ -16,7 +16,7 @@ across the 48 hours.
 
 ## How it works
 
-Every 15 minutes a GitHub Actions workflow runs [`build.py`](build.py),
+About every 15 minutes a GitHub Actions workflow runs [`build.py`](build.py),
 which fills in every 3-minute slot of the last 48 hours the site does not
 have yet, newest first:
 
@@ -45,8 +45,14 @@ Actions cache, and the site is published to GitHub Pages at
 <https://sun-data.github.io/aia-dem/>. A frame takes about 30 seconds on
 the runner, and each run stops starting new frames after 40 minutes, so
 after a long gap the window fills in over several runs: all 48 hours, 960
-frames, take about eight hours. GitHub delays scheduled runs and sometimes
-drops them, but the next run makes up whatever a dropped one missed.
+frames, take about eight hours.
+
+GitHub drops most runs of a frequent schedule, so each run starts the next
+itself. A run that took under 10 minutes, as one does once the window is
+filled in, has the next wait 10 minutes first, in an environment (`pacing`)
+whose wait timer holds the run without holding a runner; a longer one has it
+start at once. A schedule every 15 minutes restarts the chain if it breaks,
+and a late run makes up whatever was missed. Disabling the workflow stops it.
 
 ## Choices
 

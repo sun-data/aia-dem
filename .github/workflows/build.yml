@@ -1,18 +1,24 @@
 name: build
 
 on:
+  # Each run starts the next (see the last step); the schedule only restarts
+  # that chain if it ever breaks. GitHub delays scheduled runs and drops most
+  # of them, but each run fills every missing slot, so a late run catches up.
   schedule:
-    # Every 15 minutes, clear of the top of the hour when GitHub is busiest.
-    # GitHub delays scheduled runs and sometimes drops them; each run fills
-    # every missing slot, so a dropped run is made up by the next.
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
+    inputs:
+      wait:
+        description: Wait 10 minutes first, in the pacing environment
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   pages: write
   id-token: write
-  # to delete old caches, and to re-enable this workflow
+  # to delete old caches and artifacts, to start the next run, and to
+  # re-enable this workflow
   actions: write
 
 # a long run, like the first, which fills in all 48 hours, makes the next one
@@ -22,7 +28,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The wait timer of the pacing environment (10 minutes) holds the run
+  # without holding a runner.
+  wait:
+    if: ${{ inputs.wait }}
+    runs-on: ubuntu-latest
+    environment: pacing
+    steps:
+      - run: echo waited
+
   build:
+    needs: wait
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     environment:
@@ -31,6 +48,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - run: echo "started=$(date -u +%s)" >> $GITHUB_ENV
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
@@ -62,15 +80,23 @@ jobs:
       - id: deployment
         if: ${{ !cancelled() }}
         uses: actions/deploy-pages@v5
+      # Once deployed, the copy of the whole site in the artifact is no use,
+      # and GitHub would otherwise keep one from every run for a day.
+      - name: Delete the artifact
+        if: ${{ !cancelled() }}
+        run: >
+          gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts
+          --jq '.artifacts[].id' | xargs -r -I{} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}
       - name: Delete all but the two newest caches
         if: ${{ !cancelled() }}
         run: >
           gh cache list --repo ${{ github.repository }} --key site- --sort created_at --order desc
           --limit 100 --json id --jq '.[2:][].id' | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
-      # GitHub disables the schedule of a repository with no activity for 60
-      # days; re-enabling the workflow restarts that clock. Once a day is
-      # plenty. Each enable moves the workflow's updated_at, so that says how
-      # long it has been, however late this run started.
+      # GitHub disables a scheduled workflow after 60 days with no activity in
+      # the repository, and then it cannot be started at all; re-enabling it
+      # restarts that clock. Once a day is plenty. Each enable moves the
+      # workflow's updated_at, so that says how long it has been, however late
+      # this run started.
       - name: Keep the schedule alive
         if: ${{ !cancelled() }}
         run: |
@@ -78,3 +104,14 @@ jobs:
           last=$(gh api $workflow --jq .updated_at)
           [ $(( $(date -u +%s) - $(date -d "$last" +%s) )) -gt 86400 ] || exit 0
           gh api -X PUT $workflow/enable
+      # A build that took under 10 minutes, as one does once the window is
+      # filled in, has the next run wait 10 minutes first, for a run about
+      # every 15 minutes; a longer one, catching up, has it start at once.
+      # The next run queues behind this one and replaces any other waiting
+      # run, so there is only ever one chain. Cancelling a run ends the chain
+      # until the schedule restarts it; disabling the workflow stops both.
+      - name: Start the next run
+        if: ${{ !cancelled() }}
+        run: >
+          gh workflow run build.yml --repo ${{ github.repository }} --ref main
+          -f wait=$([ $(( $(date -u +%s) - started )) -lt 600 ] && echo true || echo false)
