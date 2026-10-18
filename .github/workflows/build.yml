@@ -2,8 +2,10 @@ name: build
 
 on:
   schedule:
-    # hourly; JSOC posts each image about 11 minutes after it is taken
-    - cron: "17 * * * *"
+    # Every 15 minutes, clear of the top of the hour when GitHub is busiest.
+    # GitHub delays scheduled runs and sometimes drops them; each run fills
+    # every missing slot, so a dropped run is made up by the next.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -67,10 +69,12 @@ jobs:
           --limit 100 --json id --jq '.[2:][].id' | xargs -r -n1 gh cache delete --repo ${{ github.repository }}
       # GitHub disables the schedule of a repository with no activity for 60
       # days; re-enabling the workflow restarts that clock. Once a day is
-      # plenty, and calling it every hour may itself be what held back the
-      # first scheduled runs, since it re-registers the workflow.
+      # plenty. Each enable moves the workflow's updated_at, so that says how
+      # long it has been, however late this run started.
       - name: Keep the schedule alive
         if: ${{ !cancelled() }}
         run: |
-          [ "$(date -u +%H)" = 00 ] || exit 0
-          gh api -X PUT repos/${{ github.repository }}/actions/workflows/build.yml/enable
+          workflow=repos/${{ github.repository }}/actions/workflows/build.yml
+          last=$(gh api $workflow --jq .updated_at)
+          [ $(( $(date -u +%s) - $(date -d "$last" +%s) )) -gt 86400 ] || exit 0
+          gh api -X PUT $workflow/enable

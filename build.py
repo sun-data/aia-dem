@@ -1,7 +1,7 @@
 """
 Build the rolling 48-hour AIA DEM site that solar-movie-viewer plays.
 
-Each run fills in the 12-minute slots of the last 48 hours that the site does
+Each run fills in the 3-minute slots of the last 48 hours that the site does
 not have yet, newest first, until a time budget runs out. For each slot it
 downloads the six coronal channels of the near-real-time AIA synoptic images
 from JSOC, inverts them for a differential emission measure (DEM) with
@@ -47,8 +47,8 @@ base_url = "https://jsoc1.stanford.edu/data/aia/synoptic/nrt"
 wavelengths = (94, 131, 171, 193, 211, 335)
 """The channels inverted, in angstroms."""
 
-cadence = datetime.timedelta(minutes=12)
-"""The spacing of the slots. JSOC has an image every 3 minutes."""
+cadence = datetime.timedelta(minutes=3)
+"""The spacing of the slots, which is that of the JSOC images."""
 
 grid = slice(20, 71)
 """Log T 5.0 to 7.5 on the 0.05 grid of the response, which starts at 4.0."""
@@ -99,8 +99,9 @@ the margin covers.
 
 def _slots(end: datetime.datetime, hours: float) -> list[datetime.datetime]:
     """The slots of the window ending at the last slot at or before `end`, newest first."""
-    last = end.replace(minute=end.minute - end.minute % 12, second=0, microsecond=0)
-    return [last - i * cadence for i in range(int(round(hours * 60 / 12)))]
+    step = cadence // datetime.timedelta(minutes=1)
+    last = end.replace(minute=end.minute - end.minute % step, second=0, microsecond=0)
+    return [last - i * cadence for i in range(round(datetime.timedelta(hours=hours) / cadence))]
 
 
 def _url(slot: datetime.datetime, wavelength: int) -> str:

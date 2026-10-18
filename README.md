@@ -2,7 +2,8 @@
 
 A rolling 48-hour movie of the differential emission measure (DEM) of the
 solar corona, from the near-real-time images of
-[SDO](https://sdo.gsfc.nasa.gov)/AIA, updated every hour.
+[SDO](https://sdo.gsfc.nasa.gov)/AIA, a frame every 3 minutes, updated
+every 15 minutes.
 
 **Watch it: <https://sun-data.github.io/solar-movie-viewer/>, the DEM chip.**
 
@@ -15,9 +16,9 @@ across the 48 hours.
 
 ## How it works
 
-Once an hour a GitHub Actions workflow runs [`build.py`](build.py), which
-fills in every 12-minute slot of the last 48 hours the site does not have
-yet, newest first:
+Every 15 minutes a GitHub Actions workflow runs [`build.py`](build.py),
+which fills in every 3-minute slot of the last 48 hours the site does not
+have yet, newest first:
 
 1. It downloads the six coronal channels (94, 131, 171, 193, 211 and 335 Å)
    of the AIA synoptic images from the JSOC near-real-time archive. These are
@@ -41,8 +42,11 @@ yet, newest first:
 Frames older than 48 hours are deleted, and `manifest.json` lists the rest,
 which is what the viewer reads. The frames are carried from run to run in the
 Actions cache, and the site is published to GitHub Pages at
-<https://sun-data.github.io/aia-dem/>. Each run stops starting new frames
-after 40 minutes, so after a long gap the window fills in over a few runs.
+<https://sun-data.github.io/aia-dem/>. A frame takes about 30 seconds on
+the runner, and each run stops starting new frames after 40 minutes, so
+after a long gap the window fills in over several runs: all 48 hours, 960
+frames, take about eight hours. GitHub delays scheduled runs and sometimes
+drops them, but the next run makes up whatever a dropped one missed.
 
 ## Choices
 
