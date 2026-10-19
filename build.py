@@ -415,9 +415,6 @@ def main() -> None:
         for name, slot in slots.items()
         if current and all((site / str(level) / f"{name}.jpg").exists() for level in levels)
     }
-    # made from incomplete images before those were skipped; trying them again skips them
-    for name in [name for name, frame in have.items() if frame.get("failed", 0) > size**2 // 10]:
-        print(f"{name} failed on {have.pop(name)['failed']} pixels; trying it again", flush=True)
     logt = _logt()
     for wide in (False, True):
         _colorbar(logt, site / ("colorbar_wide.png" if wide else "colorbar.png"), wide)
