@@ -80,6 +80,25 @@ any two pixels compare. It is the median, over a dozen frames from
 pixel and temperature of the frame.
 """
 
+stretch_center = 6.3
+"""The log T at which the colors change fastest, near the peak of most coronal DEMs."""
+
+stretch_width = 0.15
+"""
+The width, in log T, of the stretch of the colors about :data:`stretch_center`.
+The colors are spread evenly over arctan((log T - 6.3) / 0.15) rather than over
+log T, which gives most of the spectrum to 1.4-3 MK, where most of the corona
+is, and squeezes cooler plasma into violet and hotter into red. Spread evenly
+over log T, 1.4-2.5 MK was all green.
+"""
+
+version = 2
+"""
+The version of the frames, to raise whenever a change alters how they look.
+A run that finds frames of another version makes all of them again, so that
+the window never mixes two. Version 1 spread the colors evenly over log T.
+"""
+
 plate_scale = 2.4
 """The arcsec per pixel of the synoptic images."""
 
@@ -198,6 +217,11 @@ def _invert(counts: np.ndarray, exptime: np.ndarray, response: na.FunctionArray)
     return u.Quantity(values).value[..., shown], chi2.ndarray_aligned(("y", "x"))
 
 
+def _stretch(logt: u.Quantity | np.ndarray) -> np.ndarray:
+    """The scale the colors are spread evenly over; see :data:`stretch_width`."""
+    return np.arctan((u.Quantity(logt).value - stretch_center) / stretch_width)
+
+
 def _rgb(dem: np.ndarray, logt: np.ndarray) -> np.ndarray:
     """The colorsynth RGB image of a DEM cube, on the fixed scale."""
     rgb = colorsynth.rgb(
@@ -206,6 +230,7 @@ def _rgb(dem: np.ndarray, logt: np.ndarray) -> np.ndarray:
         axis=-1,
         spd_min=0,
         spd_max=vmax,
+        wavelength_norm=_stretch,
     )
     return np.clip(np.asarray(rgb), 0, 1)
 
@@ -234,22 +259,25 @@ def _colorbar(logt: np.ndarray, path: pathlib.Path, wide: bool) -> None:
         axis=-1,
         spd_min=0,
         spd_max=vmax,
+        wavelength_norm=_stretch,
     )
-    y = u.Quantity(y).value
+    # spaced as the colors are, so that each gets its share of the key
+    y = _stretch(y)
     label_dem = "DEM ($10^{26}\\,\\mathrm{cm^{-5}}$)"
     label_t = "temperature (MK)"
-    # log-spaced, but labeled in MK, which reads more easily than log T
-    ticks = np.array([0.5, 1, 2, 5, 10])
+    # labeled in MK, which reads more easily than log T
+    ticks = np.array([1, 1.5, 2, 3, 5, 10])
+    positions = _stretch(np.log10(ticks * 1e6))
     if wide:
         fig, ax = plt.subplots(figsize=(4, 1.4), dpi=100, constrained_layout=True)
         ax.pcolormesh(y, x, rgb)
-        ax.set_xticks(np.log10(ticks * 1e6), [f"{t:g}" for t in ticks])
+        ax.set_xticks(positions, [f"{t:g}" for t in ticks])
         ax.set_xlabel(label_t, color="white", fontsize=9)
         ax.set_ylabel("DEM\n($10^{26}\\,\\mathrm{cm^{-5}}$)", color="white", fontsize=8)
     else:
         fig, ax = plt.subplots(figsize=(1.6, 4), dpi=100, constrained_layout=True)
         ax.pcolormesh(x, y, rgb)
-        ax.set_yticks(np.log10(ticks * 1e6), [f"{t:g}" for t in ticks])
+        ax.set_yticks(positions, [f"{t:g}" for t in ticks])
         ax.set_xlabel(label_dem.replace(" ", "\n", 1), color="white", fontsize=8)
         ax.set_ylabel(label_t, color="white", fontsize=9)
     ax.tick_params(colors="white", labelsize=8)
@@ -329,8 +357,9 @@ def _manifest(site: pathlib.Path, have: dict[str, dict], logt: np.ndarray, now: 
         source=(
             "JSOC AIA near-real-time synoptic images; utu.dem.plowman with the SolarSoft V10 "
             f"response normalized to EVE, with chiantifix, and {systematic_94} DN/s added to the "
-            "uncertainty of 94; colorsynth"
+            f"uncertainty of 94; colorsynth, spread over arctan((log T - {stretch_center}) / {stretch_width})"
         ),
+        version=version,
         updated=f"{now:%Y-%m-%dT%H:%M:%S}Z",
         center=[0, 0],
         scale={str(level): plate_scale * size / level for level in levels},
@@ -369,12 +398,17 @@ def main() -> None:
     end = datetime.datetime.fromisoformat(args.end) if args.end else now
     slots = {f"{s:%Y%m%d_%H%M}": s for s in _slots(end, args.hours)}
     previous = {}
+    current = True
     if (site / "manifest.json").exists():
-        previous = {f["name"]: f for f in json.loads((site / "manifest.json").read_text())["frames"]}
+        manifest = json.loads((site / "manifest.json").read_text())
+        previous = {f["name"]: f for f in manifest["frames"]}
+        current = manifest.get("version", 1) == version
+        if not current:
+            print(f"the frames are version {manifest.get('version', 1)}; making all of them again", flush=True)
     have = {
         name: previous.get(name, dict(time=f"{slot:%Y-%m-%dT%H:%M}:00Z", name=name))
         for name, slot in slots.items()
-        if all((site / str(level) / f"{name}.jpg").exists() for level in levels)
+        if current and all((site / str(level) / f"{name}.jpg").exists() for level in levels)
     }
     logt = _logt()
     for wide in (False, True):

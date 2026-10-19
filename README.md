@@ -8,9 +8,11 @@ every 15 minutes.
 **Watch it: <https://sun-data.github.io/solar-movie-viewer/>, the DEM chip.**
 
 The DEM says how much plasma there is along each line of sight at each
-temperature. Each frame shows it as color: hue is temperature, from violet
-at 0.4 MK through green near 2 MK to red above 6 MK, and brightness is the
-amount of plasma. One fixed scale covers every temperature and every frame,
+temperature. Each frame shows it as color: hue is temperature, and brightness
+is the amount of plasma. Most of the spectrum goes to 1.4-3 MK, where most
+of the corona is: violet below 1.4 MK, blue near 1.6 MK, green near 2 MK,
+yellow and orange near 2.5 MK, and red above 3 MK. One fixed scale covers
+every temperature and every frame,
 so the brightness and color of any two pixels compare, across the disk and
 across the 48 hours.
 
@@ -37,7 +39,9 @@ have yet, newest first:
    averages.
 3. It colors the DEM from log T 5.6 to 7.2 with
    [`colorsynth`](https://github.com/sun-data/colorsynth), and saves it as
-   JPEG at 1024 and 512 pixels.
+   JPEG at 1024 and 512 pixels. The colors are spread evenly over
+   arctan((log T - 6.3) / 0.15) rather than over log T, which would leave
+   1.4-2.5 MK all green.
 
 Frames older than 48 hours are deleted, and `manifest.json` lists the rest,
 which is what the viewer reads. The frames are carried from run to run in the
@@ -45,7 +49,10 @@ Actions cache, and the site is published to GitHub Pages at
 <https://sun-data.github.io/aia-dem/>. A frame takes about 30 seconds on
 the runner, and each run stops starting new frames after 40 minutes, so
 after a long gap the window fills in over several runs: all 48 hours, 960
-frames, take about eight hours.
+frames, take about eight hours. The manifest gives the `version` of the
+frames, which goes up in `build.py` whenever a change alters how they look;
+a run that finds frames of another version deletes them and makes the whole
+window again, newest first, rather than mix the two.
 
 GitHub drops most runs of a frequent schedule, so each run starts the next
 itself. A run that took under 10 minutes, as one does once the window is
