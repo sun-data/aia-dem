@@ -26,7 +26,10 @@ have yet, newest first:
    of the AIA synoptic images from the JSOC near-real-time archive. These are
    1024 x 1024 at 2.4 arcsec per pixel, each pixel the mean of a 4 x 4 block
    of the full-resolution image, and appear about 11 minutes after they are
-   taken.
+   taken. A slot is skipped, and tried again on the next run, while any
+   channel is missing or incomplete: now and then JSOC publishes an image
+   with blocks of it missing and never fills them in (3 of the 5760 images
+   over two days in October 2026), and the fit would paint the blocks white.
 2. It inverts them for a DEM with
    [`utu.dem.plowman`](https://github.com/sun-data/utu), the method of
    Plowman & Caspi (2020), from log T 5.0 to 7.5, using the SolarSoft V10

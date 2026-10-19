@@ -147,11 +147,15 @@ def _fetch(url: str) -> bytes | None:
 
 
 def _download(slot: datetime.datetime) -> list[bytes] | None:
-    """Every channel of a slot, or :obj:`None` if any is missing."""
+    """Every channel of a slot, or :obj:`None` if any is missing or incomplete."""
     with concurrent.futures.ThreadPoolExecutor(len(wavelengths)) as pool:
         files = list(pool.map(_fetch, [_url(slot, w) for w in wavelengths]))
     present = [f for f in files if f is not None]
     if len(present) < len(files):
+        return None
+    # now and then JSOC publishes an image with blocks of it missing, and never
+    # fills them in; the fit fails there, which would paint the blocks white
+    if any(fits.getheader(io.BytesIO(f), 1)["PERCENTD"] < 100 for f in present):
         return None
     return present
 
@@ -302,7 +306,8 @@ def _fill(
     """
     Make the frames of the slots not in `have`, newest first, until
     `deadline` (of :func:`time.monotonic`), adding each to `have`. Return
-    the number of slots that failed, not counting those JSOC lacks.
+    the number of slots that failed, not counting those JSOC lacks or has
+    only part of.
     """
     missing = [name for name in slots if name not in have]
     print(f"{len(have)} of {len(slots)} frames on hand, {len(missing)} to try", flush=True)
@@ -319,7 +324,7 @@ def _fill(
         try:
             files = _download(slot)
             if files is None:
-                print(f"{name} not on JSOC (yet)", flush=True)
+                print(f"{name} not complete on JSOC (yet)", flush=True)
                 continue
             t1 = time.monotonic()
             counts, exptime = _read(files)
@@ -410,6 +415,9 @@ def main() -> None:
         for name, slot in slots.items()
         if current and all((site / str(level) / f"{name}.jpg").exists() for level in levels)
     }
+    # made from incomplete images before those were skipped; trying them again skips them
+    for name in [name for name, frame in have.items() if frame.get("failed", 0) > size**2 // 10]:
+        print(f"{name} failed on {have.pop(name)['failed']} pixels; trying it again", flush=True)
     logt = _logt()
     for wide in (False, True):
         _colorbar(logt, site / ("colorbar_wide.png" if wide else "colorbar.png"), wide)
